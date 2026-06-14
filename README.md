@@ -1,3 +1,7 @@
+This repository is forked from https://github.com/ishapuri/multi_answer_rl.
+It contains experimental modifications for Jacobian Descent / multi-answer RL experiments.
+
+
 This repository contains the official code for the paper:
 
 > **Reaching Beyond the Mode: RL for Distributional Reasoning in LMs**
