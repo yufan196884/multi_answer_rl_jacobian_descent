@@ -418,7 +418,30 @@ class GRPOTrainer(BaseTrainer):
             # that behavior without rewriting `training_step`.
             compute_loss_func="non-None value to disable scaling",
         )
+        
+        # Materialize generation defaults before vLLM/dataloader code uses them.
+        if self.args.steps_per_generation is None:
+            self.args.steps_per_generation = self.args.gradient_accumulation_steps
 
+        if self.args.generation_batch_size is None:
+            self.args.generation_batch_size = (
+                self.args.per_device_train_batch_size
+                * self.accelerator.num_processes
+                * self.args.steps_per_generation
+            )
+
+        if self.args.generation_batch_size % self.num_generations != 0:
+            raise ValueError(
+                f"generation_batch_size ({self.args.generation_batch_size}) must be divisible by "
+                f"num_generations ({self.num_generations})."
+            )
+
+        logger.info(
+            "Resolved GRPO generation settings: "
+            f"steps_per_generation={self.args.steps_per_generation}, "
+            f"generation_batch_size={self.args.generation_batch_size}, "
+            f"num_generations={self.num_generations}"
+        )
 
 
         # Reference model
