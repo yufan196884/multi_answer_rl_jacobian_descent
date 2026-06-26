@@ -478,10 +478,20 @@ class GRPOConfig(trl.GRPOConfig):
             "help": "Whether to use Transformers paged attention/generation path instead of the default path."
         },
     )
-    
+
     disable_dropout: bool = field(
         default=True,
         metadata={"help": "Whether to disable dropout in the policy and reference models."},
+    )
+
+    generation_kwargs: Optional[dict[str, Any]] = field(
+        default=None,
+        metadata={"help": "Extra keyword arguments passed to vLLM SamplingParams."},
+    )
+
+    vllm_model_impl: str = field(
+        default="auto",
+        metadata={"help": "Model implementation passed to vLLM LLM, e.g. 'auto'."},
     )
 
 
