@@ -1,9 +1,19 @@
 from dataclasses import dataclass, field
-import trl 
-from trl import ScriptArguments 
 from typing import Optional, Any
-from transformers import TrainingArguments
+
+import trl
+from trl import ScriptArguments
 from trl import SFTConfig
+from transformers import TrainingArguments
+
+# Compatibility for transformers HfArgumentParser type-hint resolution.
+# Some TRL/Transformers versions expose TrainingArguments fields annotated
+# with ParallelismConfig, and HfArgumentParser needs this name available
+# in this module's global namespace when resolving inherited annotations.
+try:
+    from transformers.training_args import ParallelismConfig
+except Exception:
+    ParallelismConfig = Any
 
 @dataclass
 class GRPOScriptArguments(ScriptArguments):
