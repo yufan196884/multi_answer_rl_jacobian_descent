@@ -1,36 +1,9 @@
 from dataclasses import dataclass, field
+import trl 
+from trl import ScriptArguments 
 from typing import Optional, Any
-
-import trl
-from trl import ScriptArguments
-from trl import SFTConfig
 from transformers import TrainingArguments
-
-# Compatibility for Transformers/TRL type-hint resolution.
-#
-# HfArgumentParser calls typing.get_type_hints(...) on GRPOConfig.
-# Because GRPOConfig inherits fields from TRL/Transformers, some inherited
-# annotations may reference ParallelismConfig. In this pinned dependency
-# combination, that name is not always available in the module globals used
-# by get_type_hints, so we define and inject a safe fallback.
-try:
-    from transformers.training_args import ParallelismConfig
-except Exception:
-    ParallelismConfig = Any
-
-try:
-    import transformers.training_args as _transformers_training_args
-    if not hasattr(_transformers_training_args, "ParallelismConfig"):
-        _transformers_training_args.ParallelismConfig = ParallelismConfig
-except Exception:
-    pass
-
-try:
-    import trl.trainer.grpo_config as _trl_grpo_config
-    if not hasattr(_trl_grpo_config, "ParallelismConfig"):
-        _trl_grpo_config.ParallelismConfig = ParallelismConfig
-except Exception:
-    pass
+from trl import SFTConfig
 
 @dataclass
 class GRPOScriptArguments(ScriptArguments):
@@ -75,6 +48,13 @@ class GRPOScriptArguments(ScriptArguments):
     )
 
     eval_sample_size: Optional[int] = field(default=100, metadata={"help": "Number of samples to use for evaluation."})
+    
+    use_transformers_paged: bool = field(
+    default=False,
+    metadata={
+        "help": "Whether to use Transformers paged attention/generation path instead of the default path."
+    },
+)
 
 
 
