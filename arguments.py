@@ -478,6 +478,11 @@ class GRPOConfig(trl.GRPOConfig):
             "help": "Whether to use Transformers paged attention/generation path instead of the default path."
         },
     )
+    
+    disable_dropout: bool = field(
+        default=True,
+        metadata={"help": "Whether to disable dropout in the policy and reference models."},
+    )
 
 
 @dataclass
