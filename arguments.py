@@ -76,12 +76,7 @@ class GRPOScriptArguments(ScriptArguments):
 
     eval_sample_size: Optional[int] = field(default=100, metadata={"help": "Number of samples to use for evaluation."})
     
-    use_transformers_paged: bool = field(
-    default=False,
-    metadata={
-        "help": "Whether to use Transformers paged attention/generation path instead of the default path."
-    },
-)
+
 
 
 
@@ -475,6 +470,13 @@ class GRPOConfig(trl.GRPOConfig):
     entropy_decay_final_factor: float = field(
         default=0.0,
         metadata={"help": "Final multiplier for entropy reward at max_steps. The entropy reward decays linearly from 1.0 at decay_start_step to this value at max_steps. Set to 0.0 to decay to zero, or a value like 0.2 to maintain some exploration signal."},
+    )
+
+    use_transformers_paged: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to use Transformers paged attention/generation path instead of the default path."
+        },
     )
 
 
