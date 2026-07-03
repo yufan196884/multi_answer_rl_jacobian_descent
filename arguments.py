@@ -290,6 +290,42 @@ class GRPOConfig(trl.GRPOConfig):
             "rewards are weighted equally with weight `1.0`."
         },
     )
+    enable_vpo: bool = field(
+        default=False,
+        metadata={
+            "help": "Use Vector Preference Optimization reward aggregation instead of fixed reward_weights for policy rewards."
+        },
+    )
+    vpo_num_objectives: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Number of reward-vector objectives. Defaults to num_candidates. In ranked_answers mode, this is "
+            "the number of ranked gold answers to treat as separate objectives."
+        },
+    )
+    vpo_num_scalarizations: int = field(
+        default=8,
+        metadata={"help": "Number of Dirichlet-sampled scalarization weights averaged per prompt group for VPO."},
+    )
+    vpo_dirichlet_alpha: float = field(
+        default=1.0,
+        metadata={"help": "Symmetric Dirichlet alpha used to sample VPO scalarization weights."},
+    )
+    vpo_objective_mode: str = field(
+        default="ranked_answers",
+        metadata={
+            "help": "Candidate reward-vector construction mode. Currently supports 'ranked_answers', where objective j "
+            "is matching ranked gold answer j."
+        },
+    )
+    vpo_apply_format_gate: bool = field(
+        default=True,
+        metadata={"help": "If True, invalidly formatted completions receive zero VPO candidate reward vectors."},
+    )
+    vpo_apply_uniqueness_gate: bool = field(
+        default=True,
+        metadata={"help": "If True, duplicate candidate answers receive zero VPO candidate reward vectors."},
+    )
     scale_rewards: str = field(
         default="none",
         metadata={
@@ -639,7 +675,6 @@ class ModelConfig:
 
         if hasattr(self.lora_target_modules, "__len__") and len(self.lora_target_modules) == 1:
             self.lora_target_modules = self.lora_target_modules[0]
-
 
 
 

@@ -138,6 +138,7 @@ def main(script_args, training_args, model_args):
 
     eval_dataset = eval_dataset.select(range(script_args.eval_sample_size))
         
+    training_args.format_pattern = script_args.format_pattern
     training_args.num_candidates = script_args.num_candidates
 
     #############################

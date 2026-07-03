@@ -12,6 +12,14 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --config_file deepspeed.yaml \
     rl_runner.py \
     --config /dccstor/ishapuri/new_int_inf/cleanrl_medical_copy/configs/Qwen3-8B/rlcr_multi.yaml
+
+# --- VPO (multi-answer, ranked-answer vector objectives) ---
+# CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
+#     --num_processes 4 \
+#     --config_file deepspeed.yaml \
+#     rl_runner.py \
+#     --config configs/Qwen3-8B/vpo_multi.yaml
+
 # --- RLVR baseline (single-answer) ---
 # CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 accelerate launch \
 #     --num_processes 8 \

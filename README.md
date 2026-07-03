@@ -78,14 +78,24 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --config configs/Qwen3-8B/rlvr_multi.yaml
 ```
 
+**VPO (multi-answer, ranked-answer vector objectives):**
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
+    --num_processes 4 \
+    --config_file deepspeed.yaml \
+    rl_runner.py \
+    --config configs/Qwen3-8B/vpo_multi.yaml
+```
+
 ### Config Files
 
-Configs live in `configs/Qwen3-8B/`. The two provided configs are:
+Configs live in `configs/Qwen3-8B/`. The provided configs are:
 
 | File | Mode | Reward functions |
 |------|------|-----------------|
 | `rlvr_multi.yaml` | RLVR | `format` + `accuracy` |
 | `rlcr_multi.yaml` | RLCR | `format` + `accuracy` + `brier` |
+| `vpo_multi.yaml` | VPO | VPO policy reward + diagnostic `format` / `accuracy` / `uniqueness` |
 
 
 
@@ -114,6 +124,12 @@ Configs live in `configs/Qwen3-8B/`. The two provided configs are:
 | `multi_answer_rlvr_medical` | `multi_answer_rlvr` (RLVR) |
 
 All prompts are defined in `system_prompts.py`.
+
+### VPO Reward Aggregation
+
+Set `enable_vpo: true` to replace the fixed `reward_weights` policy reward with VPO aggregation. The current implementation builds a candidate reward vector from ranked gold answers: objective `j` is `1` when a generated candidate matches ranked gold answer `j`, otherwise `0`. For each prompt group, the trainer samples `vpo_num_scalarizations` symmetric Dirichlet weight vectors, applies each scalarization to every candidate, takes the best candidate in the generated set, averages those best scores, and uses that scalar as the GRPO reward.
+
+The `reward_funcs` listed in a VPO config are still computed and logged for diagnostics, but they are not used as the policy reward while `enable_vpo` is true.
 
 
 ## Evaluation

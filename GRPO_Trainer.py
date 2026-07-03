@@ -366,6 +366,26 @@ class GRPOTrainer(BaseTrainer):
         self.importance_sampling_level = args.importance_sampling_level
         self.mask_truncated_completions = args.mask_truncated_completions
         self.top_entropy_quantile = args.top_entropy_quantile
+        self.enable_vpo = getattr(args, "enable_vpo", False)
+        self.vpo_num_objectives = getattr(args, "vpo_num_objectives", None) or args.num_candidates
+        self.vpo_num_scalarizations = getattr(args, "vpo_num_scalarizations", 8)
+        self.vpo_dirichlet_alpha = getattr(args, "vpo_dirichlet_alpha", 1.0)
+        self.vpo_objective_mode = getattr(args, "vpo_objective_mode", "ranked_answers")
+        self.vpo_apply_format_gate = getattr(args, "vpo_apply_format_gate", True)
+        self.vpo_apply_uniqueness_gate = getattr(args, "vpo_apply_uniqueness_gate", True)
+
+        if self.enable_vpo:
+            format_pattern = getattr(args, "format_pattern", None)
+            if str(format_pattern).lower() not in ("multi_answer", "multi_answer_no_analysis", "multi_answer_rlvr"):
+                raise ValueError("VPO requires a multi-answer format_pattern.")
+            if not isinstance(args.num_candidates, int) or args.num_candidates <= 0:
+                raise ValueError("VPO requires num_candidates to be a positive integer.")
+            if not isinstance(self.vpo_num_objectives, int) or self.vpo_num_objectives <= 0:
+                raise ValueError("VPO requires vpo_num_objectives to be a positive integer.")
+            if not isinstance(self.vpo_num_scalarizations, int) or self.vpo_num_scalarizations <= 0:
+                raise ValueError("VPO requires vpo_num_scalarizations to be a positive integer.")
+            if self.vpo_dirichlet_alpha <= 0:
+                raise ValueError("VPO requires vpo_dirichlet_alpha > 0.")
 
 
         # Datasets
@@ -1022,6 +1042,71 @@ class GRPOTrainer(BaseTrainer):
         rewards_per_func = gather(rewards_per_func)
         return rewards_per_func
 
+    @profiling_decorator
+    def _calculate_vpo_reward_vectors(self, inputs, prompts, completions, completion_ids_list):
+        from reward_fns import vpo_candidate_reward_vectors
+
+        device = self.accelerator.device
+        keys = [key for key in inputs[0] if key not in ["prompt", "completion", "completion_ids"]]
+        reward_kwargs = {key: [example[key] for example in inputs] for key in keys}
+
+        reward_kwargs["num_candidates"] = self.args.num_candidates
+        reward_kwargs["vpo_num_objectives"] = self.vpo_num_objectives
+        reward_kwargs["vpo_objective_mode"] = self.vpo_objective_mode
+        reward_kwargs["vpo_apply_format_gate"] = self.vpo_apply_format_gate
+        reward_kwargs["vpo_apply_uniqueness_gate"] = self.vpo_apply_uniqueness_gate
+
+        vectors = vpo_candidate_reward_vectors(
+            prompts=prompts,
+            completions=completions,
+            completion_ids=completion_ids_list,
+            format_pattern=self.args.format_pattern,
+            **reward_kwargs,
+        )
+
+        expected_shape = (len(completions), self.args.num_candidates, self.vpo_num_objectives)
+        if not vectors:
+            vectors = torch.zeros(expected_shape, dtype=torch.float32, device=device)
+        else:
+            vectors = torch.tensor(vectors, dtype=torch.float32, device=device)
+            if tuple(vectors.shape) != expected_shape:
+                raise ValueError(f"VPO reward vectors have shape {tuple(vectors.shape)}, expected {expected_shape}.")
+
+        return gather(vectors)
+
+    def _sample_vpo_weights(self, num_groups: int, device: torch.device) -> torch.Tensor:
+        seed = (
+            int(getattr(self.args, "seed", 0))
+            + 1_000_003 * int(getattr(self.state, "global_step", 0))
+            + 9_176 * int(getattr(self, "_step", 0))
+        )
+        rng = np.random.default_rng(seed)
+        alpha = np.full(self.vpo_num_objectives, self.vpo_dirichlet_alpha, dtype=np.float64)
+        weights = rng.dirichlet(alpha, size=(num_groups, self.vpo_num_scalarizations))
+        return torch.tensor(weights, dtype=torch.float32, device=device)
+
+    def _scalarize_vpo_rewards(self, reward_vectors: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if reward_vectors.numel() == 0:
+            raise ValueError("VPO reward vector tensor is empty.")
+        if reward_vectors.shape[0] % self.num_generations != 0:
+            raise ValueError(
+                f"VPO expected reward rows ({reward_vectors.shape[0]}) to be divisible by "
+                f"num_generations ({self.num_generations})."
+            )
+
+        num_groups = reward_vectors.shape[0] // self.num_generations
+        grouped_vectors = reward_vectors.view(
+            num_groups,
+            self.num_generations,
+            self.args.num_candidates,
+            self.vpo_num_objectives,
+        )
+        weights = self._sample_vpo_weights(num_groups, reward_vectors.device)
+        weighted_scores = (grouped_vectors.unsqueeze(1) * weights[:, :, None, None, :]).sum(dim=-1)
+        best_scores = weighted_scores.max(dim=-1).values
+        rewards = best_scores.mean(dim=1).reshape(-1)
+        return rewards, weights, best_scores
+
     def _generate(self, prompts: list[str], images: Optional[list]):
         device = self.accelerator.device
         mode = "train" if self.model.training else "eval"
@@ -1323,56 +1408,67 @@ class GRPOTrainer(BaseTrainer):
         gc.collect()
         self.accelerator.wait_for_everyone()
 
-        # Compute adaptive brier weight if brier is in reward functions and adaptive brier is enabled
-        enable_adaptive = getattr(self.args, 'enable_adaptive_brier', False)
-        if self.brier_weight_index is not None and enable_adaptive:
-            # Get current step (self.state is initialized by BaseTrainer, but add safety check)
-            try:
-                current_step = self.state.global_step if hasattr(self, 'state') and self.state is not None else 0
-            except (AttributeError, RuntimeError):
-                current_step = 0
-            
-            # Get max_steps from training arguments or state
-            max_steps = None
-            if hasattr(self.args, 'max_steps') and self.args.max_steps is not None and self.args.max_steps > 0:
-                max_steps = self.args.max_steps
-            elif hasattr(self, 'state') and self.state is not None:
-                try:
-                    if hasattr(self.state, 'max_steps') and self.state.max_steps is not None and self.state.max_steps > 0:
-                        max_steps = self.state.max_steps
-                except (AttributeError, RuntimeError):
-                    pass
-            
-            # If max_steps is still not set (e.g., using epochs), estimate from current step
-            # This is a conservative estimate that will be refined as training progresses
-            if max_steps is None:
-                max_steps = max(1000, current_step * 10)  # Conservative estimate
-            
-            # Get adaptive brier weight parameters from config
-            weight_start = getattr(self.args, 'adaptive_brier_weight_start', 0.0)
-            weight_end = getattr(self.args, 'adaptive_brier_weight_end', 0.05)
-            ramp_start_step = getattr(self.args, 'adaptive_brier_ramp_start_step', 200)
-            
-            # Compute adaptive brier weight:
-            # - weight_start for steps before ramp_start_step
-            # - linearly ramp from weight_start to weight_end from ramp_start_step to max_steps
-            if current_step <= ramp_start_step:
-                adaptive_brier_weight = weight_start
-            else:
-                # Linear ramp from ramp_start_step to max_steps
-                ramp_end_step = max_steps
-                ramp_range = max(1, ramp_end_step - ramp_start_step)  # Avoid division by zero
-                progress = min(1.0, (current_step - ramp_start_step) / ramp_range)
-                adaptive_brier_weight = weight_start + (weight_end - weight_start) * progress
-            
-            # Update reward weights with adaptive brier weight
-            reward_weights = self.original_reward_weights.clone()
-            reward_weights[self.brier_weight_index] = adaptive_brier_weight
+        if self.enable_vpo:
+            vpo_reward_vectors = self._calculate_vpo_reward_vectors(inputs, prompts, completions, completion_ids_list)
+            rewards, vpo_weights, vpo_best_scores = self._scalarize_vpo_rewards(vpo_reward_vectors)
+            objective_means = vpo_reward_vectors.mean(dim=(0, 1))
+            for objective_idx, objective_mean in enumerate(objective_means.tolist()):
+                self._metrics[mode][f"vpo/objective_{objective_idx}/mean"].append(float(objective_mean))
+            self._metrics[mode]["vpo/scalarized_reward_mean"].append(rewards.mean().item())
+            self._metrics[mode]["vpo/scalarized_reward_std"].append(rewards.std(unbiased=False).item())
+            self._metrics[mode]["vpo/weight_max_mean"].append(vpo_weights.max(dim=-1).values.mean().item())
+            self._metrics[mode]["vpo/best_score_mean"].append(vpo_best_scores.mean().item())
         else:
-            reward_weights = self.reward_weights
+            # Compute adaptive brier weight if brier is in reward functions and adaptive brier is enabled
+            enable_adaptive = getattr(self.args, 'enable_adaptive_brier', False)
+            if self.brier_weight_index is not None and enable_adaptive:
+                # Get current step (self.state is initialized by BaseTrainer, but add safety check)
+                try:
+                    current_step = self.state.global_step if hasattr(self, 'state') and self.state is not None else 0
+                except (AttributeError, RuntimeError):
+                    current_step = 0
 
-        # Apply weights to each reward function's output and sum
-        rewards = (rewards_per_func * reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
+                # Get max_steps from training arguments or state
+                max_steps = None
+                if hasattr(self.args, 'max_steps') and self.args.max_steps is not None and self.args.max_steps > 0:
+                    max_steps = self.args.max_steps
+                elif hasattr(self, 'state') and self.state is not None:
+                    try:
+                        if hasattr(self.state, 'max_steps') and self.state.max_steps is not None and self.state.max_steps > 0:
+                            max_steps = self.state.max_steps
+                    except (AttributeError, RuntimeError):
+                        pass
+
+                # If max_steps is still not set (e.g., using epochs), estimate from current step
+                # This is a conservative estimate that will be refined as training progresses
+                if max_steps is None:
+                    max_steps = max(1000, current_step * 10)  # Conservative estimate
+
+                # Get adaptive brier weight parameters from config
+                weight_start = getattr(self.args, 'adaptive_brier_weight_start', 0.0)
+                weight_end = getattr(self.args, 'adaptive_brier_weight_end', 0.05)
+                ramp_start_step = getattr(self.args, 'adaptive_brier_ramp_start_step', 200)
+
+                # Compute adaptive brier weight:
+                # - weight_start for steps before ramp_start_step
+                # - linearly ramp from weight_start to weight_end from ramp_start_step to max_steps
+                if current_step <= ramp_start_step:
+                    adaptive_brier_weight = weight_start
+                else:
+                    # Linear ramp from ramp_start_step to max_steps
+                    ramp_end_step = max_steps
+                    ramp_range = max(1, ramp_end_step - ramp_start_step)  # Avoid division by zero
+                    progress = min(1.0, (current_step - ramp_start_step) / ramp_range)
+                    adaptive_brier_weight = weight_start + (weight_end - weight_start) * progress
+
+                # Update reward weights with adaptive brier weight
+                reward_weights = self.original_reward_weights.clone()
+                reward_weights[self.brier_weight_index] = adaptive_brier_weight
+            else:
+                reward_weights = self.reward_weights
+
+            # Apply weights to each reward function's output and sum
+            rewards = (rewards_per_func * reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
 
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
@@ -1526,6 +1622,8 @@ class GRPOTrainer(BaseTrainer):
         
         for i, name in enumerate(self.reward_func_names):
             self._logs["rewards"][name].extend(rewards_per_func[:, i].tolist()[0:num_completions_to_log])
+        if self.enable_vpo:
+            self._logs["rewards"]["vpo"].extend(rewards.tolist()[0:num_completions_to_log])
         self._logs["advantages"].extend(all_process_advantages.tolist()[0:num_completions_to_log])
         
         self.accelerator.wait_for_everyone()

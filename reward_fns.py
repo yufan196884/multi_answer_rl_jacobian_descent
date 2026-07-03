@@ -4,7 +4,12 @@ import string
 import warnings
 
 import numpy as np
-from math_verify import verify, parse
+
+try:
+    from math_verify import verify, parse
+except ImportError:
+    verify = None
+    parse = None
 
 try:
     import torch
@@ -378,6 +383,8 @@ def _is_correct(cand: str, gold, source=None) -> bool:
         source_name is not None
         and 'math' in str(source_name).lower()
         and source_name not in ('hotpotQA', 'ambigQA', 'medDataset')
+        and verify is not None
+        and parse is not None
     )
 
     for g in gold_list:
@@ -394,6 +401,137 @@ def _is_correct(cand: str, gold, source=None) -> bool:
                 return True
 
     return False
+
+
+def _normalize_golds_for_completions(answer, n_completions: int):
+    """
+    Return one list of acceptable gold strings per completion.
+
+    Dataset batches usually pass `answer` as one value per completion, while
+    direct reward tests may pass a flat list of gold aliases for a single item.
+    """
+    if answer is None:
+        return [[] for _ in range(n_completions)]
+
+    if isinstance(answer, np.ndarray):
+        answer = answer.tolist()
+
+    if isinstance(answer, str):
+        return [[answer] for _ in range(n_completions)]
+
+    if not isinstance(answer, (list, tuple)):
+        return [[answer] for _ in range(n_completions)]
+
+    answer = list(answer)
+    if len(answer) == n_completions and n_completions > 1:
+        golds = []
+        for item in answer:
+            if isinstance(item, np.ndarray):
+                item = item.tolist()
+            if isinstance(item, (list, tuple)):
+                golds.append(list(item))
+            else:
+                golds.append([item])
+        return golds
+
+    if len(answer) == n_completions and any(isinstance(item, (list, tuple, np.ndarray)) for item in answer):
+        return [
+            list(item.tolist() if isinstance(item, np.ndarray) else item)
+            if isinstance(item, (list, tuple, np.ndarray))
+            else [item]
+            for item in answer
+        ]
+
+    return [answer for _ in range(n_completions)]
+
+
+def _extract_candidate_answers(format_pattern, content: str, num_candidates: int):
+    """Extract the ordered candidate answer strings for supported multi-answer formats."""
+    fmt = str(format_pattern).lower()
+    if fmt in ("multi_answer", "multi_answer_no_analysis"):
+        answers, _ = _extract_flat_candidates(content, num_candidates)
+        return answers
+    if fmt == "multi_answer_rlvr":
+        return extract_only_answers_rlvr(content, num_candidates)
+    if fmt in ("rlvr_single_answer", "rlcr_single_answer"):
+        ans = _extract_last_between(content, "<answer>", "</answer>")
+        return [ans] if ans else None
+    return None
+
+
+def vpo_candidate_reward_vectors(
+    format_pattern,
+    completions,
+    answer=None,
+    num_candidates=None,
+    source=None,
+    **kwargs,
+):
+    """
+    Return candidate-level reward vectors for VPO.
+
+    Shape: list[num_completions][num_candidates][vpo_num_objectives].
+    The default DDXPlus-oriented objective mode uses ranked gold answers:
+    objective j is 1 iff a candidate matches gold answer j, else 0.
+    """
+    if "answers" in kwargs:
+        answer = kwargs["answers"]
+    elif answer is None:
+        answer = []
+
+    if not isinstance(num_candidates, int) or num_candidates <= 0:
+        return []
+
+    num_objectives = int(kwargs.get("vpo_num_objectives") or num_candidates)
+    if num_objectives <= 0:
+        return []
+
+    objective_mode = str(kwargs.get("vpo_objective_mode", "ranked_answers")).lower()
+    if objective_mode not in ("ranked_answers", "gold_answers", "answers"):
+        raise ValueError(f"Unsupported vpo_objective_mode: {objective_mode}")
+
+    apply_format_gate = kwargs.get("vpo_apply_format_gate", True)
+    apply_uniqueness_gate = kwargs.get("vpo_apply_uniqueness_gate", True)
+
+    n = len(completions)
+    contents = [c[0]["content"] for c in completions]
+    golds = _normalize_golds_for_completions(answer, n)
+
+    if apply_format_gate:
+        fmt_scores = format_reward(format_pattern, completions, num_candidates=num_candidates, **kwargs)
+    else:
+        fmt_scores = [1.0] * n
+
+    if apply_uniqueness_gate:
+        uniq_scores = uniqueness_reward(format_pattern, completions, num_candidates=num_candidates)
+    else:
+        uniq_scores = [1.0] * n
+
+    zero_matrix = [[0.0 for _ in range(num_objectives)] for _ in range(num_candidates)]
+    out = []
+    for content, gold, fmt_score, uniq_score in zip(contents, golds, fmt_scores, uniq_scores):
+        if fmt_score == 0 or uniq_score == 0:
+            out.append([row[:] for row in zero_matrix])
+            continue
+
+        candidates = _extract_candidate_answers(format_pattern, content, num_candidates)
+        if candidates is None or len(candidates) != num_candidates:
+            out.append([row[:] for row in zero_matrix])
+            continue
+
+        gold_list = list(gold) if isinstance(gold, (list, tuple)) else [gold]
+        vectors = []
+        for cand in candidates:
+            vec = []
+            for objective_idx in range(num_objectives):
+                if objective_idx < len(gold_list):
+                    vec.append(1.0 if _is_correct(cand, [gold_list[objective_idx]], source) else 0.0)
+                else:
+                    vec.append(0.0)
+            vectors.append(vec)
+        out.append(vectors)
+
+    return out
 
 
 # ---------------------------------------------------------------------------
