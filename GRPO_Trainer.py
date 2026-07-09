@@ -376,7 +376,12 @@ class GRPOTrainer(BaseTrainer):
 
         if self.enable_vpo:
             format_pattern = getattr(args, "format_pattern", None)
-            if str(format_pattern).lower() not in ("multi_answer", "multi_answer_no_analysis", "multi_answer_rlvr"):
+            if str(format_pattern).lower() not in (
+                "multi_answer",
+                "multi_answer_no_analysis",
+                "multi_answer_rlvr",
+                "musique_multi_answer",
+            ):
                 raise ValueError("VPO requires a multi-answer format_pattern.")
             if not isinstance(args.num_candidates, int) or args.num_candidates <= 0:
                 raise ValueError("VPO requires num_candidates to be a positive integer.")

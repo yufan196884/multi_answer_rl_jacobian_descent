@@ -1,20 +1,24 @@
 # Model arguments
-model_name_or_path: Qwen/Qwen3-8B
-run_name: "vpo_multi_ranked_answers"
-output_dir: data/vpo/qwen3_8b_medical_vpo_multi
+model_name_or_path: Qwen/Qwen3-1.7B
+run_name: "vpo_musique"
+output_dir: data/vpo/qwen3_1p7b_musique_vpo
 model_revision: main
 torch_dtype: bfloat16
 attn_implementation: flash_attention_2
 
 # Data training arguments
-dataset_name: mehuldamani/medDataset_25k
+dataset_name: bdsaglam/musique
+dataset_config: answerable
+dataset_train_split: train
+dataset_test_split: validation
+eval_sample_size: 300
 
 # GRPO trainer config
-format_pattern: "multi_answer_rlvr"
+format_pattern: "musique_multi_answer"
 gradient_accumulation_steps: 32
 hub_strategy: "end"
 learning_rate: 1e-06
-max_prompt_length: 3072
+max_prompt_length: 8192
 max_completion_length: 1536
 max_steps: -1
 num_generations: 32
@@ -25,18 +29,18 @@ num_candidates: 3
 push_to_hub: true
 
 # Diagnostic rewards are still logged, but policy rewards come from VPO.
-reward_funcs: ["format", "accuracy", "uniqueness"]
+reward_funcs: ["format", "musique_answer_f1", "uniqueness"]
 reward_weights: [1.0, 1.0, 1.0]
 enable_vpo: true
-vpo_objective_mode: "ranked_answers"
-vpo_num_objectives: 3
+vpo_objective_mode: "musique"
+vpo_num_objectives: 5
 vpo_num_scalarizations: 8
 vpo_dirichlet_alpha: 1.0
 vpo_apply_format_gate: true
 vpo_apply_uniqueness_gate: true
 
 seed: 43
-sys_prompt_name: "multi_answer_rlvr_medical"
+sys_prompt_name: "musique_multi_answer"
 temperature: 0.7
 vllm_gpu_memory_utilization: 0.4
 vllm_importance_sampling_correction: false

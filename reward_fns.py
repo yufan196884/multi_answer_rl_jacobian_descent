@@ -2,6 +2,7 @@ import math
 import re
 import string
 import warnings
+from collections import Counter
 
 import numpy as np
 
@@ -33,6 +34,48 @@ def normalize_answer(s):
 
 def exact_match_score(prediction, ground_truth):
     return normalize_answer(prediction) == normalize_answer(ground_truth)
+
+
+def token_f1_score(prediction, ground_truth):
+    pred_tokens = normalize_answer(prediction).split()
+    gold_tokens = normalize_answer(ground_truth).split()
+    if not pred_tokens or not gold_tokens:
+        return float(pred_tokens == gold_tokens)
+    common = Counter(pred_tokens) & Counter(gold_tokens)
+    num_same = sum(common.values())
+    if num_same == 0:
+        return 0.0
+    precision = num_same / len(pred_tokens)
+    recall = num_same / len(gold_tokens)
+    return 2 * precision * recall / (precision + recall)
+
+
+def best_token_f1_score(prediction, gold_answers):
+    gold_list = list(gold_answers) if isinstance(gold_answers, (list, tuple)) else [gold_answers]
+    return max((token_f1_score(prediction, gold) for gold in gold_list if gold is not None), default=0.0)
+
+
+def _align_to_completions(value, n_completions: int, default=None):
+    if value is None:
+        return [default for _ in range(n_completions)]
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if not isinstance(value, (list, tuple)):
+        return [value for _ in range(n_completions)]
+
+    value = list(value)
+    if len(value) == n_completions:
+        return value
+    if len(value) == 0:
+        return [default for _ in range(n_completions)]
+    if len(value) == 1:
+        return [value[0] for _ in range(n_completions)]
+    if n_completions % len(value) == 0:
+        repeats = n_completions // len(value)
+        return [item for item in value for _ in range(repeats)]
+    if len(value) > n_completions:
+        return value[:n_completions]
+    return value + [value[-1] for _ in range(n_completions - len(value))]
 
 
 def _safe_float(x):
@@ -148,6 +191,87 @@ def extract_only_answers_rlvr(content: str, K: int):
     return [ans] if ans is not None else None
 
 
+def _parse_support_indices(text: str):
+    if text is None:
+        return None
+    seen, out = set(), []
+    for match in re.findall(r"\d+", text):
+        idx = int(match)
+        if idx not in seen:
+            seen.add(idx)
+            out.append(idx)
+    return out
+
+
+def _extract_musique_candidates(content: str, K: int):
+    candidates, pos = [], 0
+    for i in range(1, K + 1):
+        support_text, pos = _extract_between(content, f"<support{i}>", f"</support{i}>", pos)
+        if support_text is None:
+            return None
+        answer, pos = _extract_between(content, f"<answer{i}>", f"</answer{i}>", pos)
+        if answer is None:
+            return None
+        support_indices = _parse_support_indices(support_text)
+        if support_indices is None:
+            return None
+        candidates.append({"support": support_indices, "answer": answer})
+    return candidates
+
+
+def _musique_gold_supports(question_decomposition=None, paragraphs=None, max_hops: int = 4):
+    supports = []
+    if isinstance(question_decomposition, np.ndarray):
+        question_decomposition = question_decomposition.tolist()
+    if isinstance(question_decomposition, (list, tuple)):
+        for step in question_decomposition:
+            if isinstance(step, dict):
+                idx = step.get("paragraph_support_idx")
+                if idx is not None:
+                    try:
+                        supports.append(int(idx))
+                    except Exception:
+                        pass
+
+    if not supports:
+        if isinstance(paragraphs, np.ndarray):
+            paragraphs = paragraphs.tolist()
+        if isinstance(paragraphs, (list, tuple)):
+            for paragraph in paragraphs:
+                if isinstance(paragraph, dict) and paragraph.get("is_supporting"):
+                    idx = paragraph.get("idx")
+                    if idx is not None:
+                        try:
+                            supports.append(int(idx))
+                        except Exception:
+                            pass
+
+    deduped = []
+    for idx in supports:
+        if idx not in deduped:
+            deduped.append(idx)
+    return deduped[:max_hops]
+
+
+def _musique_gold_answers(answer=None, answer_aliases=None):
+    golds = []
+    if isinstance(answer, np.ndarray):
+        answer = answer.tolist()
+    if isinstance(answer, (list, tuple)):
+        golds.extend([x for x in answer if x is not None])
+    elif answer is not None:
+        golds.append(answer)
+
+    if isinstance(answer_aliases, np.ndarray):
+        answer_aliases = answer_aliases.tolist()
+    if isinstance(answer_aliases, (list, tuple)):
+        golds.extend([x for x in answer_aliases if x is not None])
+    elif answer_aliases is not None:
+        golds.append(answer_aliases)
+
+    return [str(g) for g in golds if str(g).strip()]
+
+
 # ---------------------------------------------------------------------------
 # Format validation
 # ---------------------------------------------------------------------------
@@ -212,6 +336,7 @@ def format_reward(format_pattern, completions, num_candidates, **kwargs):
     - 'multi_answer'             : K candidates with confidences + <analysis>
     - 'multi_answer_no_analysis' : K candidates with confidences, no <analysis>
     - 'multi_answer_rlvr'        : K candidates without confidences
+    - 'musique_multi_answer'     : K answers with K supporting paragraph-index lists
     - 'rlcr_single_answer'       : 1 candidate with confidence
     - 'rlvr_single_answer'       : 1 candidate without confidence
     - 'ta' / 'tac' / 'tabc' / 'tbac': legacy single-answer formats
@@ -242,6 +367,26 @@ def format_reward(format_pattern, completions, num_candidates, **kwargs):
             if not check_content_has_required_tags(content, K, checkConfidences=False, format_pattern=fmt):
                 out.append(0.0); continue
             out.append(1.0 if extract_only_answers_rlvr(content, K) is not None else 0.0)
+        return out
+
+    if fmt == "musique_multi_answer":
+        if not isinstance(K, int) or K <= 0:
+            return [0.0] * len(completions)
+        out = []
+        for content in contents:
+            opens = [m.start() for m in re.finditer(r"<think>", content)]
+            closes = [m.start() for m in re.finditer(r"</think>", content)]
+            if not opens or not closes or len(opens) != len(closes):
+                out.append(0.0); continue
+            candidates = _extract_musique_candidates(content, K)
+            if candidates is None or len(candidates) != K:
+                out.append(0.0); continue
+            valid = True
+            for cand in candidates:
+                if not cand["answer"].strip() or not cand["support"] or len(cand["support"]) > 4:
+                    valid = False
+                    break
+            out.append(1.0 if valid else 0.0)
         return out
 
     if fmt == "rlcr_single_answer":
@@ -340,6 +485,9 @@ def uniqueness_reward(format_pattern, completions, num_candidates=None, **kwargs
             answers, _ = _extract_flat_candidates(content, num_candidates)
         elif fmt == "multi_answer_rlvr":
             answers = extract_only_answers_rlvr(content, num_candidates)
+        elif fmt == "musique_multi_answer":
+            candidates = _extract_musique_candidates(content, num_candidates)
+            answers = [cand["answer"] for cand in candidates] if candidates is not None else None
         else:
             scores.append(1.0); continue  # single-answer: trivially unique
 
@@ -453,10 +601,97 @@ def _extract_candidate_answers(format_pattern, content: str, num_candidates: int
         return answers
     if fmt == "multi_answer_rlvr":
         return extract_only_answers_rlvr(content, num_candidates)
+    if fmt == "musique_multi_answer":
+        candidates = _extract_musique_candidates(content, num_candidates)
+        return [cand["answer"] for cand in candidates] if candidates is not None else None
     if fmt in ("rlvr_single_answer", "rlcr_single_answer"):
         ans = _extract_last_between(content, "<answer>", "</answer>")
         return [ans] if ans else None
     return None
+
+
+def musique_candidate_reward_vectors(
+    format_pattern,
+    completions,
+    answer=None,
+    answer_aliases=None,
+    paragraphs=None,
+    question_decomposition=None,
+    num_candidates=None,
+    **kwargs,
+):
+    if not isinstance(num_candidates, int) or num_candidates <= 0:
+        return []
+
+    n = len(completions)
+    contents = [c[0]["content"] for c in completions]
+    answers = _align_to_completions(answer, n, default="")
+    aliases = _align_to_completions(answer_aliases, n, default=[])
+    paragraphs_by_completion = _align_to_completions(paragraphs, n, default=[])
+    decompositions = _align_to_completions(question_decomposition, n, default=[])
+
+    apply_format_gate = kwargs.get("vpo_apply_format_gate", True)
+    apply_uniqueness_gate = kwargs.get("vpo_apply_uniqueness_gate", True)
+    if apply_format_gate:
+        fmt_scores = format_reward(format_pattern, completions, num_candidates=num_candidates, **kwargs)
+    else:
+        fmt_scores = [1.0] * n
+    if apply_uniqueness_gate:
+        uniq_scores = uniqueness_reward(format_pattern, completions, num_candidates=num_candidates)
+    else:
+        uniq_scores = [1.0] * n
+
+    zero_matrix = [[0.0 for _ in range(5)] for _ in range(num_candidates)]
+    out = []
+    for content, gold_answer, gold_aliases, para, decomp, fmt_score, uniq_score in zip(
+        contents, answers, aliases, paragraphs_by_completion, decompositions, fmt_scores, uniq_scores
+    ):
+        if fmt_score == 0 or uniq_score == 0:
+            out.append([row[:] for row in zero_matrix])
+            continue
+
+        candidates = _extract_musique_candidates(content, num_candidates)
+        if candidates is None or len(candidates) != num_candidates:
+            out.append([row[:] for row in zero_matrix])
+            continue
+
+        gold_supports = _musique_gold_supports(decomp, para, max_hops=4)
+        gold_answers = _musique_gold_answers(gold_answer, gold_aliases)
+        vectors = []
+        for candidate in candidates:
+            support_set = set(candidate["support"])
+            support_scores = [
+                1.0 if hop_idx < len(gold_supports) and gold_supports[hop_idx] in support_set else 0.0
+                for hop_idx in range(4)
+            ]
+            answer_f1 = best_token_f1_score(candidate["answer"], gold_answers)
+            vectors.append(support_scores + [answer_f1])
+        out.append(vectors)
+
+    return out
+
+
+def musique_answer_f1_reward(
+    format_pattern,
+    completions,
+    answer=None,
+    answer_aliases=None,
+    num_candidates=None,
+    **kwargs,
+):
+    vectors = musique_candidate_reward_vectors(
+        format_pattern=format_pattern,
+        completions=completions,
+        answer=answer,
+        answer_aliases=answer_aliases,
+        num_candidates=num_candidates,
+        vpo_apply_format_gate=kwargs.get("vpo_apply_format_gate", True),
+        vpo_apply_uniqueness_gate=kwargs.get("vpo_apply_uniqueness_gate", False),
+        **{k: v for k, v in kwargs.items() if k not in ("vpo_apply_format_gate", "vpo_apply_uniqueness_gate")},
+    )
+    if not vectors:
+        return [0.0] * len(completions)
+    return [max((cand_vec[4] for cand_vec in completion_vec), default=0.0) for completion_vec in vectors]
 
 
 def vpo_candidate_reward_vectors(
@@ -487,6 +722,24 @@ def vpo_candidate_reward_vectors(
         return []
 
     objective_mode = str(kwargs.get("vpo_objective_mode", "ranked_answers")).lower()
+    if objective_mode == "musique":
+        if num_objectives != 5:
+            raise ValueError("MuSiQue VPO requires vpo_num_objectives=5.")
+        musique_kwargs = {
+            k: v for k, v in kwargs.items()
+            if k not in ("answer_aliases", "paragraphs", "question_decomposition")
+        }
+        return musique_candidate_reward_vectors(
+            format_pattern=format_pattern,
+            completions=completions,
+            answer=answer,
+            answer_aliases=kwargs.get("answer_aliases"),
+            paragraphs=kwargs.get("paragraphs"),
+            question_decomposition=kwargs.get("question_decomposition"),
+            num_candidates=num_candidates,
+            **musique_kwargs,
+        )
+
     if objective_mode not in ("ranked_answers", "gold_answers", "answers"):
         raise ValueError(f"Unsupported vpo_objective_mode: {objective_mode}")
 

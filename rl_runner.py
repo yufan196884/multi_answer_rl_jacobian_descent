@@ -8,7 +8,7 @@ from datasets import load_dataset
 import sys
 import os 
 from transformers.trainer_utils import get_last_checkpoint
-from reward_fns import format_reward, accuracy_reward, brier_reward, mean_confidence_reward, confidence_one_or_zero, response_constraint_reward, combined_format_and_constraint_reward, pass_at_1, pass_at_i, uniqueness_reward, entropy_reward
+from reward_fns import format_reward, accuracy_reward, brier_reward, mean_confidence_reward, confidence_one_or_zero, response_constraint_reward, combined_format_and_constraint_reward, pass_at_1, pass_at_i, uniqueness_reward, entropy_reward, musique_answer_f1_reward
 from system_prompts import get_sys_prompt
 from dataset_processing import process_dataset 
 from GRPO_Trainer import GRPOTrainer
@@ -65,7 +65,7 @@ def main(script_args, training_args, model_args):
     if last_checkpoint is not None and training_args.resume_from_checkpoint is None:
         logger.info(f"Checkpoint detected, resuming training at {last_checkpoint=}.")
 
-    dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
+    dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config, data_files=script_args.data_files)
 
     # Build reward function registry
     REWARD_FUNCS_REGISTRY = {
@@ -113,6 +113,11 @@ def main(script_args, training_args, model_args):
         ),
         "entropy": partial(
             entropy_reward,
+            format_pattern=script_args.format_pattern,
+            num_candidates=getattr(script_args, "num_candidates", None),
+        ),
+        "musique_answer_f1": partial(
+            musique_answer_f1_reward,
             format_pattern=script_args.format_pattern,
             num_candidates=getattr(script_args, "num_candidates", None),
         ),

@@ -36,6 +36,20 @@ MULTI_ANSWER_RLVR_PROMPT_TEMPLATE_MEDICAL = (
     f"IMPORTANT: Each <answer{{{{i}}}}> </answer{{{{i}}}}> tag must contain ONLY the diagnosis name. Do NOT write a full sentence in <answer{{{{i}}}}>. Do NOT restate the question in <answer{{{{i}}}}>. If any extra words are included, the answer is incorrect. The answer will be graded on exact match with a ground truth answer."
 )
 
+MUSIQUE_MULTI_ANSWER_PROMPT_TEMPLATE = (
+    "A conversation between User and Assistant. The user provides 20 indexed paragraphs and a multi-hop question.\n"
+    "You must produce multiple DISTINCT candidate solutions. Each solution should cite the paragraph indices that support its reasoning and then give a concise final answer.\n"
+    "Output EXACTLY {K} DISTINCT candidate solutions.\n"
+    "FORMAT ONLY (no extra text):\n"
+    "<think> reasoning about the relevant paragraphs and possible multi-hop chains </think>\n"
+    "<support1> comma-separated supporting paragraph indices for candidate 1 </support1>\n"
+    "<answer1> candidate_final_answer_1 </answer1>\n"
+    "<support2> comma-separated supporting paragraph indices for candidate 2 </support2>\n"
+    "<answer2> candidate_final_answer_2 </answer2>\n"
+    "... exactly {K} support-answer pairs ...\n"
+    f"IMPORTANT: Each <support{{{{i}}}}> tag must contain only paragraph indices, such as 0, 4, 17. Each <answer{{{{i}}}}> tag must contain ONLY the minimal final answer. Do NOT write a full sentence in <answer{{{{i}}}}>. Do NOT restate the question in <answer{{{{i}}}}>. The answer will be graded with token-level F1 against the ground truth answer and aliases."
+)
+
 MULTI_ANSWER_RLVR_PROMPT_TEMPLATE_MEDICAL_MODIFIED1 = (
     "A conversation between User and Assistant. The user presents a medical case, and the Assistant provides a differential diagnosis.\n"
     "You are a medical expert analyzing patient information including patient demographics, symptoms, and medical antecedents.\n"
@@ -175,6 +189,9 @@ def get_sys_prompt(sys_prompt_name):
         
     elif sys_prompt_name == "multi_answer_rlvr_medical":
         return MULTI_ANSWER_RLVR_PROMPT_TEMPLATE_MEDICAL
+
+    elif sys_prompt_name == "musique_multi_answer":
+        return MUSIQUE_MULTI_ANSWER_PROMPT_TEMPLATE
 
     elif sys_prompt_name == "rlcr_no_analysis_multi_answer_medical":
         return RLCR_NO_ANALYSIS_MULTI_ANSWER_PROMPT_TEMPLATE_MEDICAL

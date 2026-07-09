@@ -50,6 +50,12 @@ class GRPOScriptArguments(ScriptArguments):
             "function."
         },
     )
+
+    data_files: Optional[dict[str, str]] = field(
+        default=None,
+        metadata={"help": "Optional local data files for datasets.load_dataset, e.g. json train/test files."},
+    )
+    
     dataset_train_split: str = field(default="train", metadata={"help": "Dataset split to use for training."})
     dataset_test_split: str = field(default="test", metadata={"help": "Dataset split to use for evaluation."})
 
@@ -315,7 +321,8 @@ class GRPOConfig(trl.GRPOConfig):
         default="ranked_answers",
         metadata={
             "help": "Candidate reward-vector construction mode. Currently supports 'ranked_answers', where objective j "
-            "is matching ranked gold answer j."
+            "is matching ranked gold answer j, and 'musique', where objectives are four support-hop indicators plus "
+            "answer F1."
         },
     )
     vpo_apply_format_gate: bool = field(
@@ -675,8 +682,6 @@ class ModelConfig:
 
         if hasattr(self.lora_target_modules, "__len__") and len(self.lora_target_modules) == 1:
             self.lora_target_modules = self.lora_target_modules[0]
-
-
 
 
 
