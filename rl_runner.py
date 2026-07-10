@@ -66,6 +66,10 @@ def main(script_args, training_args, model_args):
         logger.info(f"Checkpoint detected, resuming training at {last_checkpoint=}.")
 
     dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config, data_files=script_args.data_files)
+    print('##### DATASET DEBUGGING line 69 rl_runner.py #####')
+    print(type(dataset))
+    print(dataset)
+    print(dataset.keys())
 
     # Build reward function registry
     REWARD_FUNCS_REGISTRY = {
