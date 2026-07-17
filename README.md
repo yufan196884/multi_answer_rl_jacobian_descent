@@ -102,14 +102,16 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --num_processes 4 \
     --config_file deepspeed.yaml \
     rl_runner.py \
-    --config configs/Qwen3-4B/vpo_multi_maze.yaml
+
+    --config configs/Qwen3-1-7B/vpo_multi_maze.yaml
+>>>>>>> 1d64b62740d01e6c08209d5dd70e489b3b193202
 ```
 
 ### Config Files
 
-The paper-matched Maze recipe is
-`configs/Qwen3-4B/vpo_multi_maze.yaml`. The other existing recipes remain
-under `configs/Qwen3-1-7B/`.
+
+Configs live in `configs/Qwen3-1-7B/`. The provided configs are:
+>>>>>>> 1d64b62740d01e6c08209d5dd70e489b3b193202
 
 | File | Mode | Reward functions |
 |------|------|-----------------|
