@@ -57,7 +57,7 @@ scale_rewards: group
 loss_type: dapo
 
 max_prompt_length: 4096
-max_completion_length: 1024
+max_completion_length: 16384
 
 use_vllm: true
 vllm_gpu_memory_utilization: 0.4
