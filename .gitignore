@@ -168,7 +168,7 @@ cython_debug/
 wandb/
 
 # Training outputs / checkpoints
-data/
+
 logs/
 
 # Large files
