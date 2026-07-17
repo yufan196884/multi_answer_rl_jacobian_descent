@@ -201,6 +201,9 @@ def get_sys_prompt(sys_prompt_name):
     elif sys_prompt_name == "musique_multi_answer":
         return MUSIQUE_MULTI_ANSWER_PROMPT_TEMPLATE
 
+    elif sys_prompt_name == "maze_multi_answer":
+        return MAZE_MULTI_ANSWER_PROMPT_TEMPLATE
+
     elif sys_prompt_name == "rlcr_no_analysis_multi_answer_medical":
         return RLCR_NO_ANALYSIS_MULTI_ANSWER_PROMPT_TEMPLATE_MEDICAL
 

@@ -1,11 +1,9 @@
-This repository is forked from https://github.com/ishapuri/multi_answer_rl.
-It contains experimental modifications for Jacobian Descent / multi-answer RL experiments.
+This repository is forked from
+[ishapuri/multi_answer_rl](https://github.com/ishapuri/multi_answer_rl).
+It contains an experimental TRL implementation of:
 
-
-This repository contains the official code for the paper:
-
-> **Reaching Beyond the Mode: RL for Distributional Reasoning in LMs**
-> Isha Puri, Mehul Damani, Idan Shenfeld, Marzyeh Ghassemi, Jacob Andreas, Yoon Kim
+> **Vector Policy Optimization: Training for Diversity Improves Test-Time Search**
+> Ryan Bahlous-Boldi et al. ([arXiv:2605.22817](https://arxiv.org/abs/2605.22817))
 
 This repository builds on top of [TRL](https://github.com/huggingface/trl). We thank the authors and maintainers of these projects.
 
@@ -20,7 +18,7 @@ This repository builds on top of [TRL](https://github.com/huggingface/trl). We t
 git clone <this-repo>
 cd <this-repo>
 conda env create -f environment.yml
-conda activate rl
+conda activate rlpa
 ```
 
 **2. Install TRL at the pinned commit:**
@@ -45,6 +43,15 @@ A `deepspeed.yaml` config for 4 GPUs with ZeRO-2 is provided. If you have a diff
 ---
 
 ## Dataset
+
+Generate the Maze train/test JSONL files with:
+
+```bash
+python maze_dataset.py
+```
+
+This creates the paper's 1,000-example train split and 100-example test
+split under `data/maze/`.
 
 The medical dataset example is hosted on HuggingFace and loaded automatically during training:
 
@@ -84,7 +91,18 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --num_processes 4 \
     --config_file deepspeed.yaml \
     rl_runner.py \
-    --config configs/Qwen3-8B/vpo_multi.yaml
+    --config configs/Qwen3-8B/vpo_multi_musique.yaml
+```
+
+**VPO on Maze (three routes with four reward objectives):**
+```bash
+python maze_dataset.py
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
+    --num_processes 4 \
+    --config_file deepspeed.yaml \
+    rl_runner.py \
+    --config configs/Qwen3-8B/vpo_multi_maze.yaml
 ```
 
 ### Config Files
@@ -95,7 +113,8 @@ Configs live in `configs/Qwen3-8B/`. The provided configs are:
 |------|------|-----------------|
 | `rlvr_multi.yaml` | RLVR | `format` + `accuracy` |
 | `rlcr_multi.yaml` | RLCR | `format` + `accuracy` + `brier` |
-| `vpo_multi.yaml` | VPO | VPO policy reward + diagnostic `format` / `accuracy` / `uniqueness` |
+| `vpo_multi_maze.yaml` | Maze VPO | four-dimensional route reward + diagnostic `format` |
+| `vpo_multi_musique.yaml` | MuSiQue VPO | five-dimensional support/answer reward + diagnostics |
 
 
 

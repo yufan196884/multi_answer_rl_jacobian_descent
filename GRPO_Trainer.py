@@ -1485,11 +1485,11 @@ class GRPOTrainer(BaseTrainer):
 
         if self.scale_rewards in ["group", "none"]:
             # If self.scale_rewards = "none", we'll still log group level std
-            std_rewards = rewards.view(-1, self.num_generations).std(dim=1)
+            std_rewards = rewards.view(-1, self.num_generations).std(dim=1, unbiased=False)
             std_rewards = std_rewards.repeat_interleave(self.num_generations, dim=0)
         elif self.scale_rewards == "batch":
             # Compute global std
-            std_rewards = rewards.std().expand_as(rewards)
+            std_rewards = rewards.std(unbiased=False).expand_as(rewards)
         else:
             raise ValueError(
                 f"Invalid value for scale_rewards: {self.scale_rewards}. Must be one of 'batch', 'group', or 'none'."
@@ -1497,7 +1497,7 @@ class GRPOTrainer(BaseTrainer):
 
         is_std_zero = torch.isclose(std_rewards, torch.zeros_like(std_rewards))
         if self.scale_rewards != "none":
-            advantages = advantages / (std_rewards + 1e-4)
+            advantages = advantages / (std_rewards + 1e-6)
 
         # Slice to keep only the local part of the data
         process_slice = slice(

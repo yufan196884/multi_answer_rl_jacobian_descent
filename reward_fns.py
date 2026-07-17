@@ -502,18 +502,6 @@ def uniqueness_reward(format_pattern, completions, num_candidates=None, **kwargs
     if not isinstance(num_candidates, int) or num_candidates <= 0:
         return [0.0] * len(completions)
 
-    elif fmt == "maze_multi_answer":
-        routes = extract_numbered_routes(
-            content,
-            num_routes=num_candidates,
-        )
-
-    answers = (
-        [" ".join(route) for route in routes]
-        if routes is not None
-        else None
-    )
-
     fmt = str(format_pattern).lower()
     scores = []
 
@@ -525,6 +513,9 @@ def uniqueness_reward(format_pattern, completions, num_candidates=None, **kwargs
         elif fmt == "musique_multi_answer":
             candidates = _extract_musique_candidates(content, num_candidates)
             answers = [cand["answer"] for cand in candidates] if candidates is not None else None
+        elif fmt == "maze_multi_answer":
+            routes = extract_numbered_routes(content, num_routes=num_candidates)
+            answers = [" ".join(route) for route in routes] if routes is not None else None
         else:
             scores.append(1.0); continue  # single-answer: trivially unique
 
@@ -731,6 +722,97 @@ def musique_answer_f1_reward(
     return [max((cand_vec[4] for cand_vec in completion_vec), default=0.0) for completion_vec in vectors]
 
 
+def maze_candidate_reward_vectors(
+    format_pattern,
+    completions,
+    num_candidates=None,
+    **kwargs,
+):
+    """Return one four-dimensional maze reward vector per generated route."""
+    if not isinstance(num_candidates, int) or num_candidates <= 0:
+        return []
+
+    n = len(completions)
+    apply_format_gate = kwargs.get("vpo_apply_format_gate", True)
+    apply_uniqueness_gate = kwargs.get("vpo_apply_uniqueness_gate", False)
+
+    if apply_format_gate:
+        fmt_scores = format_reward(
+            format_pattern,
+            completions,
+            num_candidates=num_candidates,
+        )
+    else:
+        fmt_scores = [1.0] * n
+
+    if apply_uniqueness_gate:
+        uniq_scores = uniqueness_reward(
+            format_pattern,
+            completions,
+            num_candidates=num_candidates,
+        )
+    else:
+        uniq_scores = [1.0] * n
+
+    record_fields = (
+        "seed",
+        "open_cells",
+        "start",
+        "end",
+        "gold_corner",
+        "diamond_corner",
+        "gold_cells",
+        "diamond_cells",
+        "lava_cells",
+        "bonus_cell",
+        "step_budget",
+        "n_cycles",
+        "via_gold",
+        "via_diamond",
+        "via_both_gold_first",
+        "via_both_diamond_first",
+    )
+    records_by_field = {
+        field: _align_to_completions(kwargs.get(field), n)
+        for field in record_fields
+    }
+    zero_matrix = [[0.0] * 4 for _ in range(num_candidates)]
+    out = []
+
+    for index, completion in enumerate(completions):
+        if fmt_scores[index] == 0 or uniq_scores[index] == 0:
+            out.append([row[:] for row in zero_matrix])
+            continue
+
+        content = completion[0]["content"]
+        routes = extract_numbered_routes(content, num_routes=num_candidates)
+        if routes is None:
+            out.append([row[:] for row in zero_matrix])
+            continue
+
+        record = {
+            field: values[index]
+            for field, values in records_by_field.items()
+        }
+        missing_fields = [
+            field for field, value in record.items()
+            if value is None
+        ]
+        if missing_fields:
+            raise ValueError(
+                "Maze VPO reward is missing dataset fields: "
+                + ", ".join(missing_fields)
+            )
+
+        maze = maze_from_record(record)
+        out.append([
+            list(simulate_route(maze, route))
+            for route in routes
+        ])
+
+    return out
+
+
 def vpo_candidate_reward_vectors(
     format_pattern,
     completions,
@@ -775,6 +857,16 @@ def vpo_candidate_reward_vectors(
             question_decomposition=kwargs.get("question_decomposition"),
             num_candidates=num_candidates,
             **musique_kwargs,
+        )
+
+    if objective_mode == "maze":
+        if num_objectives != 4:
+            raise ValueError("Maze VPO requires vpo_num_objectives=4.")
+        return maze_candidate_reward_vectors(
+            format_pattern=format_pattern,
+            completions=completions,
+            num_candidates=num_candidates,
+            **kwargs,
         )
 
     if objective_mode not in ("ranked_answers", "gold_answers", "answers"):
