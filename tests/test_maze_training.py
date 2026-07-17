@@ -9,9 +9,11 @@ from datasets import Dataset, DatasetDict
 from dataset_processing import process_dataset
 from maze_dataset import (
     DIRECTIONS,
+    build_maze_dataset,
     generate_surviving_mazes,
     maze_from_record,
     simulate_route,
+    validate_maze,
 )
 from reward_fns import (
     format_reward,
@@ -101,7 +103,7 @@ class MazeTrainingTests(unittest.TestCase):
         config_path = (
             REPO_ROOT
             / "configs"
-            / "Qwen3-8B"
+            / "Qwen3-4B"
             / "vpo_multi_maze.yaml"
         )
         with config_path.open(encoding="utf-8") as handle:
@@ -122,6 +124,19 @@ class MazeTrainingTests(unittest.TestCase):
             * config["gradient_accumulation_steps"]
         )
         self.assertEqual(rollout_batch // config["num_generations"], 128)
+
+    def test_generated_maze_splits_are_valid_and_disjoint(self):
+        dataset = build_maze_dataset(train_size=10, test_size=3)
+        splits = {}
+
+        for split_name, expected_size in (("train", 10), ("test", 3)):
+            rows = dataset[split_name]
+            self.assertEqual(len(rows), expected_size)
+            for row in rows:
+                validate_maze(maze_from_record(row))
+            splits[split_name] = {row["seed"] for row in rows}
+
+        self.assertTrue(splits["train"].isdisjoint(splits["test"]))
 
     def test_dataset_processing_preserves_maze_metadata(self):
         dataset = DatasetDict({"train": Dataset.from_list([self.record])})

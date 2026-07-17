@@ -73,7 +73,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --num_processes 4 \
     --config_file deepspeed.yaml \
     rl_runner.py \
-    --config configs/Qwen3-8B/rlcr_multi.yaml
+    --config configs/Qwen3-1-7B/rlcr_multi.yaml
 ```
 
 **RLVR (multi-answer, correctness only):**
@@ -82,7 +82,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --num_processes 4 \
     --config_file deepspeed.yaml \
     rl_runner.py \
-    --config configs/Qwen3-8B/rlvr_multi.yaml
+    --config configs/Qwen3-1-7B/rlvr_multi.yaml
 ```
 
 **VPO (multi-answer, ranked-answer vector objectives):**
@@ -91,7 +91,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --num_processes 4 \
     --config_file deepspeed.yaml \
     rl_runner.py \
-    --config configs/Qwen3-8B/vpo_multi_musique.yaml
+    --config configs/Qwen3-1-7B/vpo_multi_musique.yaml
 ```
 
 **VPO on Maze (three routes with four reward objectives):**
@@ -102,12 +102,14 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --num_processes 4 \
     --config_file deepspeed.yaml \
     rl_runner.py \
-    --config configs/Qwen3-8B/vpo_multi_maze.yaml
+    --config configs/Qwen3-4B/vpo_multi_maze.yaml
 ```
 
 ### Config Files
 
-Configs live in `configs/Qwen3-8B/`. The provided configs are:
+The paper-matched Maze recipe is
+`configs/Qwen3-4B/vpo_multi_maze.yaml`. The other existing recipes remain
+under `configs/Qwen3-1-7B/`.
 
 | File | Mode | Reward functions |
 |------|------|-----------------|

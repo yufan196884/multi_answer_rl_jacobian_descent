@@ -1,5 +1,5 @@
 # Model
-model_name_or_path: Qwen/Qwen3-1.7B
+model_name_or_path: Qwen/Qwen3-4B
 run_name: "vpo_maze"
 output_dir: data/vpo/qwen3_4b_maze_vpo
 model_revision: main
