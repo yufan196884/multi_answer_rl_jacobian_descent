@@ -310,6 +310,8 @@ class GRPOConfig(trl.GRPOConfig):
             "help": "Use Vector Preference Optimization reward aggregation instead of fixed reward_weights for policy rewards."
         },
     )
+
+
     vpo_num_objectives: Optional[int] = field(
         default=None,
         metadata={
@@ -341,6 +343,17 @@ class GRPOConfig(trl.GRPOConfig):
         default=True,
         metadata={"help": "If True, duplicate candidate answers receive zero VPO candidate reward vectors."},
     )
+
+    debug_print_first_maze: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Print the first maze, rendered model prompt, and all generated "
+                "rollouts from each Maze generation batch. For Maze dataset only."
+            )
+        },
+    )
+    
     scale_rewards: str = field(
         default="none",
         metadata={

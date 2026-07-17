@@ -1288,6 +1288,183 @@ class GRPOTrainer(BaseTrainer):
             forward_kwargs,
         )
 
+    def _debug_print_first_maze_group(
+        self,
+        *,
+        inputs,
+        prompts_text,
+        completions_text,
+    ) -> None:
+        """
+        Print the first distinct maze in the current global generation batch.
+
+        The num_generations rollouts for one prompt may be spread across multiple
+        distributed processes, so each process contributes its local records and
+        only the main process prints the gathered group.
+        """
+        if not getattr(self.args, "debug_print_first_maze", False):
+            return
+
+        if str(getattr(self, "vpo_objective_mode", "")).lower() != "maze":
+            return
+
+        local_records = []
+
+        for example, prompt_text, completion_text in zip(
+            inputs,
+            prompts_text,
+            completions_text,
+        ):
+            local_records.append(
+                {
+                    "id": example.get("id"),
+                    "seed": example.get("seed"),
+                    "grid": example.get("grid"),
+                    "step_budget": example.get("step_budget"),
+                    "prompt": prompt_text,
+                    "completion": completion_text,
+                }
+            )
+
+        # Every distributed process must participate in this call.
+        gathered_records = gather_object(local_records)
+
+        if not self.accelerator.is_main_process:
+            return
+
+        # Accelerate normally returns a flattened list, but handle a nested result
+        # defensively in case its behaviour differs across installed versions.
+        if (
+            gathered_records
+            and isinstance(gathered_records[0], list)
+        ):
+            gathered_records = [
+                record
+                for process_records in gathered_records
+                for record in process_records
+            ]
+
+        if not gathered_records:
+            print(
+                "\n===== MAZE DEBUG: NO RECORDS GATHERED =====\n",
+                flush=True,
+            )
+            return
+
+        first_record = gathered_records[0]
+
+        # Prefer the seed because it is present in every Maze dataset row.
+        first_seed = first_record.get("seed")
+        first_id = first_record.get("id")
+
+        if first_seed is not None:
+            matching_records = [
+                record
+                for record in gathered_records
+                if record.get("seed") == first_seed
+            ]
+        elif first_id is not None:
+            matching_records = [
+                record
+                for record in gathered_records
+                if record.get("id") == first_id
+            ]
+        else:
+            # Last-resort fallback if the Maze metadata is unexpectedly missing.
+            first_prompt = first_record.get("prompt")
+            matching_records = [
+                record
+                for record in gathered_records
+                if record.get("prompt") == first_prompt
+            ]
+
+        expected_responses = int(self.num_generations)
+        matching_records = matching_records[:expected_responses]
+
+        print("\n" + "=" * 100, flush=True)
+        print("MAZE GENERATION-BATCH DEBUG", flush=True)
+        print("=" * 100, flush=True)
+        print(
+            f"global_step: {self.state.global_step}",
+            flush=True,
+        )
+        print(
+            f"internal_generation_step: {self._step}",
+            flush=True,
+        )
+        print(
+            f"maze id: {first_id}",
+            flush=True,
+        )
+        print(
+            f"maze seed: {first_seed}",
+            flush=True,
+        )
+        print(
+            f"step budget: {first_record.get('step_budget')}",
+            flush=True,
+        )
+        print(
+            f"responses found: {len(matching_records)} "
+            f"(expected {expected_responses})",
+            flush=True,
+        )
+
+        print("\n----- MAZE GRID -----", flush=True)
+
+        grid = first_record.get("grid")
+        if isinstance(grid, (list, tuple)):
+            print("\n".join(str(row) for row in grid), flush=True)
+        else:
+            print(grid if grid is not None else "<grid missing>", flush=True)
+
+        print("\n----- FULL INPUT PROMPT SENT TO MODEL -----", flush=True)
+        print(first_record.get("prompt", "<prompt missing>"), flush=True)
+
+        # Import locally so non-Maze training does not depend on Maze parsing.
+        try:
+            from maze_dataset import extract_numbered_routes
+        except Exception:
+            extract_numbered_routes = None
+
+        print("\n----- GENERATED RESPONSES -----", flush=True)
+
+        for response_index, record in enumerate(
+            matching_records,
+            start=1,
+        ):
+            completion = record.get("completion", "")
+
+            parse_status = "not checked"
+            if extract_numbered_routes is not None:
+                try:
+                    parsed_routes = extract_numbered_routes(
+                        completion,
+                        num_routes=self.args.num_candidates,
+                    )
+                    parse_status = (
+                        "valid"
+                        if parsed_routes is not None
+                        else "INVALID"
+                    )
+                except Exception as error:
+                    parse_status = f"parser error: {error!r}"
+
+            print(
+                "\n"
+                + "-" * 100
+                + f"\nROLLOUT {response_index}/{expected_responses}"
+                + f" | characters={len(completion)}"
+                + f" | maze parser={parse_status}"
+                + "\n"
+                + "-" * 100,
+                flush=True,
+            )
+            print(completion, flush=True)
+
+        print("\n" + "=" * 100, flush=True)
+        print("END MAZE GENERATION-BATCH DEBUG", flush=True)
+        print("=" * 100 + "\n", flush=True)
 
     def _generate_and_score_completions(
         self, inputs: list[dict[str, Union[torch.Tensor, Any]]]
@@ -1396,10 +1573,21 @@ class GRPOTrainer(BaseTrainer):
         # Decode
         prompts_text = self.processing_class.batch_decode(prompt_ids, skip_special_tokens=True)
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
+
+        if mode == "train":
+            self._debug_print_first_maze_group(
+                inputs=inputs,
+                prompts_text=prompts_text,
+                completions_text=completions_text,
+            )
         # if is_conversational(inputs[0]):
         completions = []
         for prompt, completion in zip(prompts, completions_text):
-            bootstrap = prompt.pop()["content"] if prompt[-1]["role"] == "assistant" else ""
+            bootstrap = (
+                prompt[-1]["content"]
+                if prompt and prompt[-1]["role"] == "assistant"
+                else ""
+            )
             completions.append([{"role": "assistant", "content": bootstrap + completion}])
         # else:
         #     completions = completions_text

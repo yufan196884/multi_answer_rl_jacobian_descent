@@ -30,6 +30,9 @@ vpo_dirichlet_alpha: 1.0
 vpo_apply_format_gate: true
 vpo_apply_uniqueness_gate: false
 
+# Debugging
+debug_print_first_maze: true
+
 # Diagnostic reward only
 reward_funcs:
   - format
