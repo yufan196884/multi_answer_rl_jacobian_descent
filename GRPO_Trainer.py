@@ -381,6 +381,7 @@ class GRPOTrainer(BaseTrainer):
                 "multi_answer_no_analysis",
                 "multi_answer_rlvr",
                 "musique_multi_answer",
+                "maze_multi_answer",
             ):
                 raise ValueError("VPO requires a multi-answer format_pattern.")
             if not isinstance(args.num_candidates, int) or args.num_candidates <= 0:

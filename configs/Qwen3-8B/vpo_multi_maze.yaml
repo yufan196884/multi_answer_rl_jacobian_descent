@@ -1,0 +1,61 @@
+# Model
+model_name_or_path: Qwen/Qwen3-1.7B
+run_name: "vpo_maze"
+output_dir: data/vpo/qwen3_1-7b_maze_vpo
+model_revision: main
+torch_dtype: bfloat16
+attn_implementation: flash_attention_2
+
+# Dataset
+dataset_name: json
+data_files:
+  train: data/maze/train.jsonl
+  test: data/maze/test.jsonl
+dataset_train_split: train
+dataset_test_split: test
+eval_sample_size: 100
+
+# Prompt and output format
+task_spec: gen
+sys_prompt_name: maze_multi_answer
+format_pattern: maze_multi_answer
+num_candidates: 3
+
+# VPO
+enable_vpo: true
+vpo_objective_mode: maze
+vpo_num_objectives: 4
+vpo_num_scalarizations: 8
+vpo_dirichlet_alpha: 1.0
+vpo_apply_format_gate: true
+vpo_apply_uniqueness_gate: false
+
+# Diagnostic reward only
+reward_funcs:
+  - format
+reward_weights:
+  - 1.0
+
+# Training
+learning_rate: 1.0e-6
+num_train_epochs: 1
+num_generations: 8
+temperature: 1.0
+top_p: 1.0
+beta: 0.001
+epsilon: 0.2
+scale_rewards: group
+
+max_prompt_length: 4096
+max_completion_length: 1024
+
+use_vllm: true
+vllm_gpu_memory_utilization: 0.4
+
+logging_steps: 1
+log_completions: true
+save_strategy: steps
+save_steps: 20
+save_total_limit: 1
+report_to:
+  - wandb

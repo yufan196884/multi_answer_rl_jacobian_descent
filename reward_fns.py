@@ -3,7 +3,12 @@ import re
 import string
 import warnings
 from collections import Counter
-
+from maze_dataset import (
+    extract_numbered_routes,
+    maze_from_record,
+    simulate_route,
+    uniform_scalar_reward,
+)
 import numpy as np
 
 try:
@@ -339,6 +344,7 @@ def format_reward(format_pattern, completions, num_candidates, **kwargs):
     - 'musique_multi_answer'     : K answers with K supporting paragraph-index lists
     - 'rlcr_single_answer'       : 1 candidate with confidence
     - 'rlvr_single_answer'       : 1 candidate without confidence
+    - 'multi_maze_answer'        : K candidate routes for maze
     - 'ta' / 'tac' / 'tabc' / 'tbac': legacy single-answer formats
     """
     fmt = str(format_pattern).lower()
@@ -412,6 +418,25 @@ def format_reward(format_pattern, completions, num_candidates, **kwargs):
                 out.append(0.0); continue
             out.append(1.0 if extract_only_answers_rlvr(content, K) is not None else 0.0)
         return out
+    
+    if fmt == "maze_multi_answer":
+        if not isinstance(K, int) or K <= 0:
+            return [0.0] * len(completions)
+
+        scores = []
+
+        for content in contents:
+            routes = extract_numbered_routes(
+                content,
+                num_routes=K,
+            )
+            scores.append(
+                1.0
+                if routes is not None and len(routes) == K
+                else 0.0
+            )
+
+        return scores
 
     # Legacy single-answer formats: ta, tac, tabc, tbac
     out = []
@@ -476,6 +501,18 @@ def uniqueness_reward(format_pattern, completions, num_candidates=None, **kwargs
     """
     if not isinstance(num_candidates, int) or num_candidates <= 0:
         return [0.0] * len(completions)
+
+    elif fmt == "maze_multi_answer":
+        routes = extract_numbered_routes(
+            content,
+            num_routes=num_candidates,
+        )
+
+    answers = (
+        [" ".join(route) for route in routes]
+        if routes is not None
+        else None
+    )
 
     fmt = str(format_pattern).lower()
     scores = []

@@ -67,6 +67,14 @@ class GRPOScriptArguments(ScriptArguments):
     )
 
     sys_prompt_name: str = field(default="ver", metadata={"help": "System prompt name."})
+
+    task_name: str = field(
+        default="generic",
+        metadata={
+            "help": "Dataset adapter: generic, musique, or maze."
+        },
+    )
+    
     task_spec: str = field(default="gen", metadata={"help": "Task specification."})
     set_pad_token: Optional[int] = field(default=None, metadata={"help": "Set the pad token to this id"})
 

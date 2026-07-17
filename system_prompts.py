@@ -50,6 +50,14 @@ MUSIQUE_MULTI_ANSWER_PROMPT_TEMPLATE = (
     f"IMPORTANT: Each <support{{{{i}}}}> tag must contain only paragraph indices, such as 0, 4, 17. Each <answer{{{{i}}}}> tag must contain ONLY the minimal final answer. Do NOT write a full sentence in <answer{{{{i}}}}>. Do NOT restate the question in <answer{{{{i}}}}>. The answer will be graded with token-level F1 against the ground truth answer and aliases."
 )
 
+MAZE_MULTI_ANSWER_PROMPT_TEMPLATE = (
+    "You solve maze-navigation problems.\n"
+    "Follow the required numbered route-tag format exactly.\n"
+    "Output exactly {K} routes.\n"
+    "Inside each <route_i>...</route_i> tag, write only "
+    "space-separated UP, DOWN, LEFT, and RIGHT moves."
+)
+
 MULTI_ANSWER_RLVR_PROMPT_TEMPLATE_MEDICAL_MODIFIED1 = (
     "A conversation between User and Assistant. The user presents a medical case, and the Assistant provides a differential diagnosis.\n"
     "You are a medical expert analyzing patient information including patient demographics, symptoms, and medical antecedents.\n"
