@@ -51,11 +51,13 @@ MUSIQUE_MULTI_ANSWER_PROMPT_TEMPLATE = (
 )
 
 MAZE_MULTI_ANSWER_PROMPT_TEMPLATE = (
+    "/no_think\n"
     "You solve maze-navigation problems.\n"
-    "Follow the required numbered route-tag format exactly.\n"
     "Output exactly {K} routes.\n"
+    "Begin immediately with <route_1>.\n"
     "Inside each <route_i>...</route_i> tag, write only "
-    "space-separated UP, DOWN, LEFT, and RIGHT moves."
+    "space-separated UP, DOWN, LEFT, and RIGHT moves.\n"
+    "Every route tag must have a closing tag."
 )
 
 MULTI_ANSWER_RLVR_PROMPT_TEMPLATE_MEDICAL_MODIFIED1 = (
