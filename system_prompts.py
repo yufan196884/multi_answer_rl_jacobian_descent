@@ -51,7 +51,7 @@ MUSIQUE_MULTI_ANSWER_PROMPT_TEMPLATE = (
 )
 
 MAZE_MULTI_ANSWER_PROMPT_TEMPLATE = (
-    "/no_think\n"
+    # "/no_think\n"
     "You solve maze-navigation problems.\n"
     "Output exactly {K} routes.\n"
     "Begin immediately with <route_1>.\n"
